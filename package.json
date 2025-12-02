@@ -20,6 +20,7 @@
   },
   "homepage": "https://github.com/mateusfsan/Conversor-e-compressor-de-Imagem-e-v-deo#readme",
   "dependencies": {
+    "archiver": "^7.0.1",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "multer": "^2.0.2",

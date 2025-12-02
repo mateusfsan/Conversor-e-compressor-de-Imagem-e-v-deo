@@ -5,7 +5,7 @@
 
 class CompressorImagens {
   constructor() {
-    this.arquivoSelecionado = null;
+    this.arquivosSelecionados = [];
     this.tipoProcessamento = null;
     this.nomeArquivoProcessado = null;
 
@@ -75,7 +75,10 @@ class CompressorImagens {
 
     const arquivos = e.dataTransfer.files;
     if (arquivos.length > 0) {
-      this.selecionarArquivo(arquivos[0]);
+      // Processar todos os arquivos
+      for (let i = 0; i < arquivos.length; i++) {
+        this.selecionarArquivo(arquivos[i]);
+      }
     }
   }
 
@@ -84,7 +87,10 @@ class CompressorImagens {
    */
   handleFileSelect(e) {
     if (e.target.files.length > 0) {
-      this.selecionarArquivo(e.target.files[0]);
+      // Processar todos os arquivos selecionados
+      for (let i = 0; i < e.target.files.length; i++) {
+        this.selecionarArquivo(e.target.files[i]);
+      }
     }
   }
 
@@ -104,13 +110,15 @@ class CompressorImagens {
       return;
     }
 
-    this.arquivoSelecionado = arquivo;
+    // Adicionar arquivo à lista
+    this.arquivosSelecionados.push(arquivo);
 
     // Atualizar UI
-    const tamanhoMB = (arquivo.size / 1024 / 1024).toFixed(2);
-    this.nomeArquivo.textContent = arquivo.name;
-    this.tamanhoOriginal.textContent = `${tamanhoMB} MB`;
-    this.statusText.textContent = '✓ Arquivo selecionado e pronto para processar';
+    this.nomeArquivo.textContent = `${this.arquivosSelecionados.length} arquivo(s) selecionado(s)`;
+    const tamanhoTotal = this.arquivosSelecionados.reduce((acc, f) => acc + f.size, 0);
+    const tamanhoTotalMB = (tamanhoTotal / 1024 / 1024).toFixed(2);
+    this.tamanhoOriginal.textContent = `Total: ${tamanhoTotalMB} MB`;
+    this.statusText.textContent = `✓ ${this.arquivosSelecionados.length} arquivo(s) selecionado(s) e prontos para processar`;
 
     // Habilitar botões
     this.converterBtn.disabled = false;
@@ -124,7 +132,7 @@ class CompressorImagens {
    * Processar arquivo
    */
   async processarArquivo(tipo) {
-    if (!this.arquivoSelecionado) {
+    if (this.arquivosSelecionados.length === 0) {
       this.mostrarErro('Nenhum arquivo selecionado.');
       return;
     }
@@ -132,6 +140,7 @@ class CompressorImagens {
     this.tipoProcessamento = tipo;
     const endpoint = tipo === 'convert' ? '/api/imagem/convert' : '/api/imagem/comprimir';
     const nomeTipo = tipo === 'convert' ? 'Conversão para WebP' : 'Compressão';
+    const quantidadeArquivos = this.arquivosSelecionados.length;
 
     // Desabilitar botões
     this.converterBtn.disabled = true;
@@ -139,8 +148,8 @@ class CompressorImagens {
 
     // Mostrar progress bar
     this.progressContainer.classList.remove('hidden');
-    this.progressText.textContent = `${nomeTipo} em andamento...`;
-    this.statusText.textContent = `🔄 ${nomeTipo} em andamento...`;
+    this.progressText.textContent = `${nomeTipo} de ${quantidadeArquivos} arquivo(s) em andamento...`;
+    this.statusText.textContent = `🔄 ${nomeTipo} de ${quantidadeArquivos} arquivo(s) em andamento...`;
     this.progressBar.style.width = '0%';
     this.progressPercent.textContent = '0%';
 
@@ -155,9 +164,11 @@ class CompressorImagens {
         }
       }, 300);
 
-      // Criar FormData
+      // Criar FormData com múltiplos arquivos
       const formData = new FormData();
-      formData.append('arquivo', this.arquivoSelecionado);
+      this.arquivosSelecionados.forEach(arquivo => {
+        formData.append('arquivos', arquivo);
+      });
 
       // Fazer request
       const response = await fetch(endpoint, {
@@ -175,18 +186,19 @@ class CompressorImagens {
       // Completar progresso
       this.progressBar.style.width = '100%';
       this.progressPercent.textContent = '100%';
-      this.progressText.textContent = `${nomeTipo} concluída com sucesso!`;
+      this.progressText.textContent = `${nomeTipo} de ${quantidadeArquivos} arquivo(s) concluída com sucesso!`;
 
       // Obter blob
       const blob = await response.blob();
-      this.nomeArquivoProcessado = this.gerarNomeArquivo(tipo);
+      this.nomeArquivoProcessado = this.gerarNomeArquivo(tipo, quantidadeArquivos);
 
       // Calcular tamanho
       const tamanhoFinalMB = (blob.size / 1024 / 1024).toFixed(2);
-      const tamanhoOriginalMB = (this.arquivoSelecionado.size / 1024 / 1024).toFixed(2);
+      const tamanhoOriginalTotal = this.arquivosSelecionados.reduce((acc, f) => acc + f.size, 0);
+      const tamanhoOriginalMB = (tamanhoOriginalTotal / 1024 / 1024).toFixed(2);
       // Cálculo correto: diferença / original
-      const diferenca = this.arquivoSelecionado.size - blob.size;
-      const percentualReducao = ((diferenca / this.arquivoSelecionado.size) * 100).toFixed(2);
+      const diferenca = tamanhoOriginalTotal - blob.size;
+      const percentualReducao = ((diferenca / tamanhoOriginalTotal) * 100).toFixed(2);
       const direcao = percentualReducao >= 0 ? '↓' : '↑';
 
       // Armazenar blob para download
@@ -195,10 +207,10 @@ class CompressorImagens {
       // Atualizar UI
       this.tamanhoFinal.textContent = `${tamanhoFinalMB} MB`;
       this.percentualReducao.textContent = `${direcao} ${Math.abs(percentualReducao)}%`;
-      this.statusText.textContent = `✅ ${nomeTipo} concluída!`;
+      this.statusText.textContent = `✅ ${nomeTipo} de ${quantidadeArquivos} arquivo(s) concluída!`;
 
       // Mostrar resultado
-      document.getElementById('resultsTamanhoOriginal').textContent = `${tamanhoOriginalMB} MB`;
+      document.getElementById('resultsTamanhoOriginal').textContent = `${tamanhoOriginalMB} MB (${quantidadeArquivos} arquivo(s))`;
       document.getElementById('resultsTamanhoFinal').textContent = `${tamanhoFinalMB} MB`;
       document.getElementById('resultsReducao').textContent = `${direcao} ${Math.abs(percentualReducao)}% de redução`;
       this.resultsSection.classList.remove('hidden');
@@ -221,10 +233,14 @@ class CompressorImagens {
   /**
    * Gerar nome do arquivo processado
    */
-  gerarNomeArquivo(tipo) {
-    const extensao = tipo === 'convert' ? '.webp' : this.arquivoSelecionado.name.split('.').pop();
-    const nomeSemExtensao = this.arquivoSelecionado.name.split('.')[0];
-    return `${nomeSemExtensao}-processado.${extensao}`;
+  gerarNomeArquivo(tipo, quantidade) {
+    if (quantidade === 1) {
+      const ext = tipo === 'convert' ? '.webp' : this.arquivosSelecionados[0].name.split('.').pop();
+      const nome = this.arquivosSelecionados[0].name.split('.')[0];
+      return `${nome}-processado.${ext}`;
+    }
+    // Para múltiplos arquivos, retornar nome do ZIP
+    return `imagens-${tipo === 'convert' ? 'convertidas' : 'comprimidas'}-${Date.now()}.zip`;
   }
 
   /**
@@ -250,7 +266,7 @@ class CompressorImagens {
    * Resetar para estado inicial
    */
   resetar() {
-    this.arquivoSelecionado = null;
+    this.arquivosSelecionados = [];
     this.tipoProcessamento = null;
     this.blobProcessado = null;
     this.nomeArquivoProcessado = null;
