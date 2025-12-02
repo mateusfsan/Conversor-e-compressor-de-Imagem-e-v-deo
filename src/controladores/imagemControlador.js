@@ -40,7 +40,7 @@ function limparArquivos(...caminhos) {
 }
 
 /**
- * Converter imagem para WebP
+ * Converter imagem para WebP - Retorna JSON com metadados
  * POST /api/imagem/convert
  * Requer: arquivos (multipart/form-data)
  */
@@ -101,61 +101,52 @@ exports.converterParaWebp = async (req, res, next) => {
       })
     );
 
-    // se apenas 1 arquivo processado com sucesso, retornar direto
-    if (processados.length === 1 && erros.length === 0) {
-      const arquivo = processados[0];
-      return res.download(arquivo.caminho, arquivo.nomeOriginal, (err) => {
-        limparArquivos(arquivo.caminho);
-        if (err && err.code !== 'ERR_HTTP_HEADERS_SENT') {
-          console.error('Erro ao enviar arquivo:', err.message);
-        }
-      });
-    }
-
-    // se múltiplos arquivos, criar ZIP
-    if (processados.length > 1) {
-      const nomeZip = `imagens-convertidas-${Date.now()}.zip`;
-      const caminhoZip = path.join(TMP, nomeZip);
-      const output = fs.createWriteStream(caminhoZip);
-      const archive = archiver('zip', { zlib: { level: 9 } });
-
-      archive.pipe(output);
-
-      processados.forEach(arquivo => {
-        archive.file(arquivo.caminho, { name: arquivo.nomeOriginal });
-      });
-
-      await archive.finalize();
-
-      return new Promise((resolve, reject) => {
-        output.on('close', () => {
-          res.download(caminhoZip, nomeZip, (err) => {
-            processados.forEach(a => limparArquivos(a.caminho));
-            limparArquivos(caminhoZip);
-            if (err && err.code !== 'ERR_HTTP_HEADERS_SENT') {
-              console.error('Erro ao enviar ZIP:', err.message);
-            }
-          });
-          resolve();
-        });
-
-        output.on('error', reject);
-        archive.on('error', reject);
-      });
-    }
-
-    // se houver apenas erros
-    if (erros.length > 0) {
+    // se nenhum arquivo foi processado
+    if (processados.length === 0) {
       return res.status(400).json({
         erro: 'Falha ao processar alguns arquivos',
         total: req.files.length,
-        sucesso: processados.length,
+        sucesso: 0,
         detalhes: erros
       });
     }
 
-    res.status(400).json({
-      erro: 'Nenhum arquivo foi processado com sucesso'
+    // ✅ NOVO: Armazenar arquivos em cache global
+    const cacheId = `convert-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    global.arquivosCache = global.arquivosCache || {};
+    global.arquivosCache[cacheId] = {
+      arquivos: processados,
+      timestamp: Date.now()
+    };
+
+    // Limpar cache após 30 minutos
+    setTimeout(() => {
+      if (global.arquivosCache[cacheId]) {
+        global.arquivosCache[cacheId].arquivos.forEach(a => limparArquivos(a.caminho));
+        delete global.arquivosCache[cacheId];
+        console.log(`[Cache] Limpou ${cacheId}`);
+      }
+    }, 30 * 60 * 1000);
+
+    // Calcular totais
+    const tamanhoOriginalTotal = processados.reduce((acc, a) => acc + a.tamanhoOriginal, 0);
+    const tamanhoFinalTotal = processados.reduce((acc, a) => acc + a.tamanhoFinal, 0);
+    const reducaoMedia = ((tamanhoOriginalTotal - tamanhoFinalTotal) / tamanhoOriginalTotal * 100).toFixed(2);
+
+    // ✅ Retornar JSON com metadados
+    return res.json({
+      sucesso: true,
+      cacheId,
+      total: processados.length,
+      tamanhoOriginalTotal,
+      tamanhoFinalTotal,
+      reducaoMedia: parseFloat(reducaoMedia),
+      arquivos: processados.map(a => ({
+        nomeProcessado: a.nomeOriginal,
+        tamanhoOriginal: a.tamanhoOriginal,
+        tamanhoFinal: a.tamanhoFinal,
+        reducao: parseFloat(a.reducao)
+      }))
     });
 
   } catch (err) {
@@ -237,61 +228,158 @@ exports.comprimirImagem = async (req, res, next) => {
       })
     );
 
-    // se apenas 1 arquivo processado com sucesso, retornar direto
-    if (processados.length === 1 && erros.length === 0) {
-      const arquivo = processados[0];
-      return res.download(arquivo.caminho, arquivo.nomeOriginal, (err) => {
-        limparArquivos(arquivo.caminho);
-        if (err && err.code !== 'ERR_HTTP_HEADERS_SENT') {
-          console.error('Erro ao enviar arquivo:', err.message);
-        }
-      });
-    }
-
-    // se múltiplos arquivos, criar ZIP
-    if (processados.length > 1) {
-      const nomeZip = `imagens-comprimidas-${Date.now()}.zip`;
-      const caminhoZip = path.join(TMP, nomeZip);
-      const output = fs.createWriteStream(caminhoZip);
-      const archive = archiver('zip', { zlib: { level: 9 } });
-
-      archive.pipe(output);
-
-      processados.forEach(arquivo => {
-        archive.file(arquivo.caminho, { name: arquivo.nomeOriginal });
-      });
-
-      await archive.finalize();
-
-      return new Promise((resolve, reject) => {
-        output.on('close', () => {
-          res.download(caminhoZip, nomeZip, (err) => {
-            processados.forEach(a => limparArquivos(a.caminho));
-            limparArquivos(caminhoZip);
-            if (err && err.code !== 'ERR_HTTP_HEADERS_SENT') {
-              console.error('Erro ao enviar ZIP:', err.message);
-            }
-          });
-          resolve();
-        });
-
-        output.on('error', reject);
-        archive.on('error', reject);
-      });
-    }
-
-    // se houver apenas erros
-    if (erros.length > 0) {
+    // se nenhum arquivo foi processado
+    if (processados.length === 0) {
       return res.status(400).json({
         erro: 'Falha ao processar alguns arquivos',
         total: req.files.length,
-        sucesso: processados.length,
+        sucesso: 0,
         detalhes: erros
       });
     }
 
-    res.status(400).json({
-      erro: 'Nenhum arquivo foi processado com sucesso'
+    // ✅ NOVO: Armazenar arquivos em cache global
+    const cacheId = `compress-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    global.arquivosCache = global.arquivosCache || {};
+    global.arquivosCache[cacheId] = {
+      arquivos: processados,
+      timestamp: Date.now()
+    };
+
+    // Limpar cache após 30 minutos
+    setTimeout(() => {
+      if (global.arquivosCache[cacheId]) {
+        global.arquivosCache[cacheId].arquivos.forEach(a => limparArquivos(a.caminho));
+        delete global.arquivosCache[cacheId];
+        console.log(`[Cache] Limpou ${cacheId}`);
+      }
+    }, 30 * 60 * 1000);
+
+    // Calcular totais
+    const tamanhoOriginalTotal = processados.reduce((acc, a) => acc + a.tamanhoOriginal, 0);
+    const tamanhoFinalTotal = processados.reduce((acc, a) => acc + a.tamanhoFinal, 0);
+    const reducaoMedia = ((tamanhoOriginalTotal - tamanhoFinalTotal) / tamanhoOriginalTotal * 100).toFixed(2);
+
+    // ✅ Retornar JSON com metadados
+    return res.json({
+      sucesso: true,
+      cacheId,
+      total: processados.length,
+      tamanhoOriginalTotal,
+      tamanhoFinalTotal,
+      reducaoMedia: parseFloat(reducaoMedia),
+      arquivos: processados.map(a => ({
+        nomeProcessado: a.nomeOriginal,
+        tamanhoOriginal: a.tamanhoOriginal,
+        tamanhoFinal: a.tamanhoFinal,
+        reducao: parseFloat(a.reducao)
+      }))
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Baixar arquivo individual processado do cache
+ * GET /api/imagem/download/:cacheId/:index
+ */
+exports.baixarArquivoProcessado = (req, res, next) => {
+  try {
+    const { cacheId, index } = req.params;
+
+    // Validar parâmetros
+    if (!cacheId || index === undefined) {
+      return res.status(400).json({
+        sucesso: false,
+        erro: 'cacheId e index são obrigatórios'
+      });
+    }
+
+    // Buscar no cache
+    const cacheItem = global.arquivosCache?.[cacheId];
+    if (!cacheItem) {
+      return res.status(404).json({
+        sucesso: false,
+        erro: 'Cache expirado ou inválido. Processe as imagens novamente.'
+      });
+    }
+
+    const arquivo = cacheItem.arquivos[parseInt(index)];
+    if (!arquivo) {
+      return res.status(404).json({
+        sucesso: false,
+        erro: 'Arquivo não encontrado no cache'
+      });
+    }
+
+    // Enviar arquivo
+    res.download(arquivo.caminho, arquivo.nomeOriginal, (err) => {
+      if (err && err.code !== 'ERR_HTTP_HEADERS_SENT') {
+        console.error(`Erro ao baixar: ${err.message}`);
+      }
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Baixar todos os arquivos processados em ZIP
+ * GET /api/imagem/download-zip/:cacheId
+ */
+exports.baixarZipCompleto = (req, res, next) => {
+  try {
+    const { cacheId } = req.params;
+
+    // Validar parâmetro
+    if (!cacheId) {
+      return res.status(400).json({
+        sucesso: false,
+        erro: 'cacheId é obrigatório'
+      });
+    }
+
+    // Buscar no cache
+    const cacheItem = global.arquivosCache?.[cacheId];
+    if (!cacheItem) {
+      return res.status(404).json({
+        sucesso: false,
+        erro: 'Cache expirado ou inválido. Processe as imagens novamente.'
+      });
+    }
+
+    // Criar ZIP em memória
+    const archive = archiver('zip', {
+      zlib: { level: 9 }
+    });
+
+    // Definir headers
+    res.setHeader('Content-Disposition', `attachment; filename="imagens-${Date.now()}.zip"`);
+    res.setHeader('Content-Type', 'application/zip');
+
+    // Pipar arquivo para resposta
+    archive.pipe(res);
+
+    // Adicionar cada arquivo ao ZIP
+    cacheItem.arquivos.forEach((arquivo) => {
+      archive.file(arquivo.caminho, { name: arquivo.nomeOriginal });
+    });
+
+    // Finalizar ZIP
+    archive.finalize();
+
+    // Tratar erros
+    archive.on('error', (err) => {
+      console.error('Erro ao criar ZIP:', err);
+      if (!res.headersSent) {
+        res.status(500).json({
+          sucesso: false,
+          erro: 'Erro ao criar arquivo ZIP'
+        });
+      }
     });
 
   } catch (err) {

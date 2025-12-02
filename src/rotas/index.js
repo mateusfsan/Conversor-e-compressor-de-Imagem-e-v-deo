@@ -1,11 +1,8 @@
 const express = require('express');
 const router = express.Router();
-
 const imagemControlador = require('../controladores/imagemControlador');
 
-/**
- * Rota de saúde da API
- */
+// Rota de saúde
 router.get('/', (req, res) => {
   res.json({
     ok: true,
@@ -19,18 +16,16 @@ router.get('/', (req, res) => {
   });
 });
 
-/**
- * Converter imagem para WebP
- * POST /api/imagem/convert
- * Body: multipart/form-data com campo "arquivo"
- */
+// Converter para WebP
 router.post('/imagem/convert', imagemControlador.uploadMiddleware, imagemControlador.converterParaWebp);
 
-/**
- * Comprimir imagem mantendo o formato original
- * POST /api/imagem/comprimir
- * Body: multipart/form-data com campo "arquivo"
- */
+// Comprimir imagem
 router.post('/imagem/comprimir', imagemControlador.uploadMiddleware, imagemControlador.comprimirImagem);
+
+// Baixar arquivo individual
+router.get('/imagem/download/:cacheId/:index', imagemControlador.baixarArquivoProcessado);
+
+// Baixar ZIP completo
+router.get('/imagem/download-zip/:cacheId', imagemControlador.baixarZipCompleto);
 
 module.exports = router;
